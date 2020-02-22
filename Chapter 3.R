@@ -128,3 +128,99 @@ data %>%
   arrange(desc(posterior)) %>% 
   select(posterior) %>% 
   top_n(n = 1)
+
+
+#Loss function
+data %>% 
+  mutate(loss = posterior * abs(0.5 - p_grid)) %>% 
+  summarise(`expected loss` = sum(loss))
+
+#Doing it for all possible decisions
+make_loss <-  function(our_data){
+  data %>% 
+    mutate(loss = posterior * abs(our_data-p_grid)) %>% 
+    summarise(weighted_average_loss = sum(loss))
+}
+
+(
+l <- 
+  data %>% 
+  select(p_grid) %>% 
+  rename(decision = p_grid) %>% 
+  mutate(weighted_average_loss = purrr::map(decision, make_loss)) %>% 
+  unnest()
+  
+)
+
+
+##Simulating new data 
+
+tibble(n = 2,  #Two tosses of the globe
+       probability = 0.7, #Probability of water is 70 %
+       w = 0:2) %>%  #Observed water in tosses, 0 through 2 
+  mutate(density = dbinom(w, size = n, prob = probability))
+
+#9 % chance of observing 0 water, 42 % of 1 water and 49 % of 2 water 
+
+#Simulating new data using these likelihoods
+set.seed(3)
+rbinom(1,2,0.7)
+#Generates 2 --> one simulation with two tosses generated 2 water
+
+#10 tosses
+set.seed(3)
+rbinom(10,2,0.7)
+
+
+#Simulate many draws
+n_draws <- 1e5
+
+set.seed(3)
+data <- tibble(draws = rbinom(n_draws, size =2, prob = 0.7))
+
+data %>% group_by(draws) %>% 
+  count() %>% 
+  mutate(proportion = n/nrow(data))
+
+#Simulate many rounds of 9 tosses
+dummy <- tibble(draws = rbinom(n_draws, size = 9, prob = 0.7))
+dummy
+
+#plot histogram
+ggplot(dummy, aes(x = draws))+
+  geom_histogram(binwidth = 1)+
+  scale_x_continuous(breaks = seq(from = 0, to = 9, by = 1))
+
+#Simluating predicted observations with p = 0.6
+water <- tibble(draws= rbinom(n_draws, size = 9, prob = 0.6))
+water                
+
+#using samples from posterior instead
+water <- tibble(draws = rbinom(n_draws, size = 9, prob = samples))
+
+n <- 1001
+n_success <- 6
+n_trials  <- 9
+
+d <-
+  tibble(p_grid     = seq(from = 0, to = 1, length.out = n),
+         # note we're still using a flat uniform prior
+         prior      = 1) %>% 
+  mutate(likelihood = dbinom(n_success, size = n_trials, prob = p_grid)) %>% 
+  mutate(posterior  = (likelihood * prior) / sum(likelihood * prior))
+
+samples <-
+  d %>% 
+  sample_n(size = n_samples, weight = posterior, replace = T) %>% 
+  mutate(w = purrr::map_dbl(p_grid, rbinom, n = 1, size = 9))
+
+set.seed(3)
+samples <- 
+  samples %>% 
+  mutate(iter = 1:n(),
+         draws = purrr::map(p_grid, rbinom, n = 9, size = 1)) %>% 
+  unnest(draws)
+
+glimpse(samples)
+
+
