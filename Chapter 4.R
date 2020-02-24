@@ -308,3 +308,118 @@ p352 <-
 
 p_load(ggpubr)
 ggarrange(p10, p50, p150,p352)
+
+#Add uncertainty shades around regression line 
+#- make a lot of data point for the distribution of possible mean heights for a person who weighs 50 kg 
+mu_at_50 <- post %>% transmute(mu_at_50 = b_Intercept+b_weight * 50)
+
+#Plot the uncertainty expressed in the mean of the different possible mean heights 
+ggplot(mu_at_50, aes(mu_at_50))+
+  geom_density()
+
+#Get the 89 and 95 % high probability density intervals
+mean_hdi(mu_at_50[,1], .width = c(0.89, 0.95))
+
+#Calculate all HPDI's
+mu <- fitted(b4.3, summary=F)
+mu
+
+#Specify only some predictor values --> here, only weights between 25 and 70 kgs
+weight_seq <- tibble(weight = seq(25, 70, by = 1)) 
+
+mu <- fitted(b4.3, summary= F,
+             newdata = weight_seq) %>% 
+  as_tibble() %>% 
+  #Namin the columns after the weight value used to compute them 
+  set_names(25:70) %>% 
+  mutate(iter = 1:n())
+str(mu)
+
+#Now we have a matrix where each column is a given weigth, and each row is a sample from the post distrib
+
+#Converting the data from wide to long format
+p_load(reshape2)
+?melt()
+melt_mu <- melt(mu, id = "iter", value.name = "height")
+
+#Plot it
+ggplot(melt_mu, aes(x=variable, heigth))+
+  geom_point(melt_mu %>% filter(iter<101))
+
+#Predict height instead of sampling from posterior distribution to also have sd's
+
+pred_height <- predict(b4.3, newdata = weight_seq) %>% 
+  as_tibble() %>% 
+  bind_cols(weight_seq)
+#This tibble contains simulated heights, not samples 
+
+library(rethinking)
+data(Howell1)
+d <- Howell1
+d2 <- d[ d$age >= 18 , ]
+d2 <- 
+  d2 %>%
+  mutate(weight_c = weight - mean(weight))
+
+mu_summary <-
+  fitted(b4.3, 
+         newdata = weight_seq) %>%
+  as_tibble() %>%
+  # let's tack on the `weight` values from `weight_seq`
+  bind_cols(weight_seq)
+
+d2 %>%
+  ggplot(aes(x = weight)) +
+  geom_ribbon(data = pred_height, 
+              aes(ymin = Q2.5, ymax = Q97.5),
+              fill = "grey83") +
+  geom_smooth(data = mu_summary,
+              aes(y = Estimate, ymin = Q2.5, ymax = Q97.5),
+              stat = "identity",
+              fill = "grey70", color = "black", alpha = 1, size = 1/2) +
+  geom_point(aes(y = height),
+             color = "navyblue", shape = 1, size = 1.5, alpha = 2/3) +
+  coord_cartesian(xlim = range(d2$weight),
+                  ylim = range(d2$height)) +
+  theme(text = element_text(family = "Times"),
+        panel.grid = element_blank())
+
+
+
+###POLYNOMIAL REGRESSION
+
+#Standardizing the variable height
+data <- data %>% mutate(weight_s = (weight - mean(weight))/sd(weight))
+
+#plotting height on weight - both standardized and non- to see there is no difference
+ggplot(data, aes(weight, height))+
+  geom_point()
+
+ggplot(data, aes(weight_s, height))+
+  geom_point()
+
+#Quadratic model
+b4.5 <- 
+  brm(data = data, family = gaussian,
+      height ~ 1 + weight_s + I(weight_s^2),
+      prior = c(prior(normal(178, 100), class = Intercept),
+                prior(normal(0, 10), class = b),
+                prior(cauchy(0, 1), class = sigma)),
+      iter = 2000, warmup = 1000, chains = 4, cores = 4,
+      seed = 4)
+
+print(b4.5)
+
+#In order to plot the model
+weight_seq_standardized <- tibble(weight_seq = seq(-2.5, 2.5, length.out = 30))
+
+f_quad <- fitted(b4.5,
+                 newdata = weight_seq_standardized) %>% 
+  as_tibble() %>% 
+  bind_cols(weight_seq_standardized)
+
+p_quad <-
+  predict(b4.5, 
+          newdata = weight_seq) %>%
+  as_tibble() %>%
+  bind_cols(weight_seq)  
