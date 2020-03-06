@@ -508,3 +508,5 @@ post_milk_monkey$mu_str <- post_milk_monkey$b_Intercept+post_milk_monkey$b_clade
 #Getting tabel with variables of interest and rounded to two digits
 
 round(t(apply(post_milk_monkey[ ,c(8,9,11,12)], 2, quantile, c(.5, .025, .975))), digits = 2)
+
+
