@@ -413,4 +413,98 @@ posterior_summary(model_milk_fat_lact) %>% round(digits = 3)
 
 #The two variables contain much of the same information 
 
-#PAGE 149, TOP
+#Post-treatment bias
+
+#Simulating plant data 
+
+n <- 100
+set.seed(5)
+
+#Simulating data
+data <- tibble(h0 = rnorm(n, mean = 10, sd = 2),
+               treatment = rep(0:1, each = n/2),
+               fungus = rbinom(n, size = 1, prob = 0.5-treatment *0.4),
+               h1 = h0 + rnorm(n, mean = 5-3*fungus, sd = 1))
+
+#Fitting model 
+plant_model1 <- brm(data = data, family = gaussian,
+                    h1 ~ h0 + treatment + fungus,
+                    prior = c(prior(normal(0,100), class = Intercept),
+                              prior(normal(0,100), class = b),
+                              prior(uniform(0,10), class = sigma)),
+                    iter = 2000, warmup = 1000, chains = 4, cores = 4,
+                    control = list(adapt_delta = 0.99),
+                    seed = 5)
+
+print(plant_model1)
+
+#Exclusing fungus (=post-treatment variable)
+
+plant_model2 <- update(plant_model1, formula. = h1~1+h0+treatment)
+
+print(plant_model2)
+
+
+#Categorical variables
+data(Howell1)
+d <- Howell1
+
+height_gender <- map(
+  alist(
+    height ~ dnorm( mu , sigma ) , #Formula
+    mu <- a + bm*male , #mean of the distribution takes an intercept and a parameter
+    a ~ dnorm( 178 , 100 ) ,  #Intercept follows a normal distrib with mean = 178, sd = 100
+    bm ~ dnorm( 0 , 10 ) ,  #beta follows a normal distrib with mean = 0, sd = 10
+    sigma ~ dunif( 0 , 50 )  #sigma(standard deviation) is a uniform distrib from 0 to 50
+  ) ,
+  data=d )
+
+
+precis(height_gender)
+#a is mean height of females, mean height of males is a + bm 
+#assessing width of distribution by sampling
+post <- extract.samples(height_gender)
+mu.male <- post$a + post$bm
+PI(mu.male)
+#male height: lower 5 % = 139 cm, upper 94 % = 144 cm
+
+
+#Many categories (non-binary variable)
+data(milk)
+d <- milk
+unique(d$clade)
+
+#Coding dummy variable of monkey type 
+
+d <- d %>%mutate(clade_nwm = ifelse(clade == "New World Monkey", 1, 0),
+                 clade_owm = ifelse(clade == "Old World Monkey", 1, 0),
+                 clade_str = ifelse(clade == "Strepsirrhine", 1, 0),
+                 clade_ape = ifelse(clade == "Ape", 1, 0)) #Actually, this will be the reference category
+                                                           #So it will not be used 
+
+#Fitting the model 
+milk_model_monkeytype <- brm(data = d, family = gaussian,
+                             kcal.per.g~ 1 + clade_nwm + clade_owm + clade_str,
+                             prior = c(prior(normal(0.6,10), class = Intercept),
+                                       prior(normal(0,1), class = b), #Same prior for all predictors
+                                       prior(uniform(0,10), class = sigma)),
+                                       iter = 2000, warmup = 500, chains = 4, cores = 4,
+                                       seed = 5)
+
+print(milk_model_monkeytype)
+
+#drawing form posterior to get means for the different types 
+post_milk_monkey <- milk_model_monkeytype %>% 
+  posterior_samples()
+
+head(post_milk_monkey)
+
+#Assessing each type on turn
+post_milk_monkey$mu_ape <- post_milk_monkey$b_Intercept
+post_milk_monkey$mu_nwm <- post_milk_monkey$b_Intercept+post_milk_monkey$b_clade_nwm
+post_milk_monkey$mu_owm <- post_milk_monkey$b_Intercept+post_milk_monkey$b_clade_owm
+post_milk_monkey$mu_str <- post_milk_monkey$b_Intercept+post_milk_monkey$b_clade_str
+
+#Getting tabel with variables of interest and rounded to two digits
+
+round(t(apply(post_milk_monkey[ ,c(8,9,11,12)], 2, quantile, c(.5, .025, .975))), digits = 2)
